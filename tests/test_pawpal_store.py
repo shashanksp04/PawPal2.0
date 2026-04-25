@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from pawpal_store import (
-    TaskOverlapError,
     TaskValidationError,
     load_owner,
     owner_from_dict,
@@ -37,7 +36,7 @@ def test_roundtrip_owner_json(tmp_path: Path) -> None:
     assert lt.time_minutes == 25
 
 
-def test_try_add_task_rejects_overlap(tmp_path: Path) -> None:
+def test_try_add_task_allows_unscheduled_and_overlapping_inputs(tmp_path: Path) -> None:
     store = tmp_path / "db.json"
     owner = Owner("O")
     pet = Pet("P", "dog")
@@ -47,8 +46,9 @@ def test_try_add_task_rejects_overlap(tmp_path: Path) -> None:
     owner2 = load_owner(store)
     assert owner2 is not None
     pet2 = owner2.pets[0]
-    with pytest.raises(TaskOverlapError):
-        try_add_task(owner2, pet2, Task("b", 30, "daily", start_time="09:30"))
+    try_add_task(owner2, pet2, Task("b", 30, "daily", start_time="09:30"))
+    try_add_task(owner2, pet2, Task("c", 30, "daily", start_time=None))
+    assert len(pet2.tasks) == 3
 
 
 def test_try_add_task_rejects_empty_description(tmp_path: Path) -> None:
@@ -62,3 +62,46 @@ def test_try_add_task_rejects_empty_description(tmp_path: Path) -> None:
 def test_owner_from_dict_rejects_bad_schema() -> None:
     with pytest.raises(ValueError):
         owner_from_dict({"schema_version": 999, "owner": {"name": "x", "pets": []}})
+
+
+def test_owner_from_v1_schema_is_accepted() -> None:
+    payload = {
+        "schema_version": 1,
+        "owner": {
+            "name": "Legacy",
+            "pets": [
+                {
+                    "name": "Mochi",
+                    "species": "dog",
+                    "tasks": [
+                        {
+                            "id": "x1",
+                            "description": "Walk",
+                            "time_minutes": 20,
+                            "frequency": "daily",
+                            "completed": False,
+                            "due_date": None,
+                            "start_time": "08:00",
+                        }
+                    ],
+                }
+            ],
+        },
+    }
+    owner = owner_from_dict(payload)
+    assert owner.name == "Legacy"
+    assert owner.pets[0].tasks[0].start_time == "08:00"
+
+
+def test_roundtrip_preserves_null_start_time(tmp_path: Path) -> None:
+    store = tmp_path / "db.json"
+    owner = Owner("Alex")
+    p = Pet("Mochi", "dog")
+    owner.add_pet(p)
+    p.add_task(Task("Brush", 10, "daily", start_time=None, task_id="id-null"))
+    save_owner(owner, store)
+    loaded = load_owner(store)
+    assert loaded is not None
+    t = loaded.pets[0].tasks[0]
+    assert t.task_id == "id-null"
+    assert t.start_time is None

@@ -5,6 +5,7 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ class Task:
         frequency: str,
         completed: bool = False,
         due_date: date | None = None,
-        start_time: str = "09:00",
+        start_time: str | None = None,
         task_id: str | None = None,
     ) -> None:
         """Create a task with description, duration, frequency, optional due date and start time."""
@@ -51,7 +52,7 @@ class Task:
         self._frequency = frequency.strip().lower()
         self._completed = completed
         self._due_date = due_date
-        self._start_time = _normalize_hhmm(start_time)
+        self._start_time = _normalize_hhmm(start_time) if start_time is not None else None
         self._task_id = task_id if task_id is not None else str(uuid.uuid4())
 
     @property
@@ -80,8 +81,8 @@ class Task:
         return self._due_date
 
     @property
-    def start_time(self) -> str:
-        """Return scheduled start of day as HH:MM (used for sorting and conflict checks)."""
+    def start_time(self) -> str | None:
+        """Return scheduled start as HH:MM, or None if not yet placed on a clock."""
         return self._start_time
 
     @property
@@ -93,12 +94,18 @@ class Task:
         """Mark this task as completed."""
         self._completed = True
 
+    def set_start_time(self, value: str | None) -> None:
+        """Set/clear start time with HH:MM normalization when provided."""
+        self._start_time = _normalize_hhmm(value) if value is not None else None
+
 
 def task_day_interval_minutes(task: Task) -> tuple[int, int]:
     """
     Return [start, end) in minutes from midnight for the task's clock window.
     Raises ValueError if the window extends past 24:00 (not supported for overlap checks).
     """
+    if task.start_time is None:
+        raise ValueError("Task has no start_time.")
     start_m = start_time_to_minutes(task.start_time)
     end_m = start_m + int(task.time_minutes)
     if end_m > 24 * 60:
@@ -169,7 +176,7 @@ class Pet:
                 start_time=task.start_time,
             )
 
-        if new_task is not None and owner is not None:
+        if new_task is not None and owner is not None and new_task.start_time is not None:
             conflict = task_overlaps_any_pending(owner, new_task, ignore_task=task)
             if conflict is not None:
                 p2, t2 = conflict
@@ -230,6 +237,8 @@ def pending_task_interval_rows(owner: Owner) -> list[tuple[Pet, Task, int, int]]
         for task in pet.tasks:
             if task.completed:
                 continue
+            if task.start_time is None:
+                continue
             try:
                 a, b = task_day_interval_minutes(task)
             except ValueError:
@@ -260,6 +269,103 @@ def task_overlaps_any_pending(
         if intervals_overlap_half_open(c0, c1, t0, t1):
             return pet, task
     return None
+
+
+def validate_proposed_schedule(
+    owner: Owner,
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Validate AI schedule proposals against pending tasks.
+
+    Rules:
+    - Every pending incomplete task id appears exactly once.
+    - Every proposed row has valid HH:MM and non-overlapping [start, start+duration).
+    - Rows are normalized and returned sorted by order, then start_time.
+    """
+    pending_pairs = [
+        (pet, task)
+        for pet in owner.pets
+        for task in pet.tasks
+        if not task.completed
+    ]
+    expected_ids = {task.task_id for _, task in pending_pairs}
+    by_id = {task.task_id: (pet, task) for pet, task in pending_pairs}
+
+    seen_ids: set[str] = set()
+    normalized: list[dict[str, Any]] = []
+    intervals: list[tuple[str, int, int, str]] = []
+
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ValueError(f"Invalid proposal row at index {idx}: expected object.")
+        task_id = str(row.get("task_id", "")).strip()
+        if not task_id:
+            raise ValueError(f"Missing task_id at proposal row {idx}.")
+        if task_id not in expected_ids:
+            raise ValueError(f"Unknown task_id in proposal: {task_id}.")
+        if task_id in seen_ids:
+            raise ValueError(f"Duplicate task_id in proposal: {task_id}.")
+        seen_ids.add(task_id)
+
+        start_time_raw = row.get("start_time")
+        if not isinstance(start_time_raw, str) or not start_time_raw.strip():
+            raise ValueError(f"Missing/invalid start_time for task_id {task_id}.")
+        start_time = _normalize_hhmm(start_time_raw)
+
+        pet, task = by_id[task_id]
+        scheduled = Task(
+            task.description,
+            task.time_minutes,
+            task.frequency,
+            completed=False,
+            due_date=task.due_date,
+            start_time=start_time,
+            task_id=task.task_id,
+        )
+        a0, a1 = task_day_interval_minutes(scheduled)
+        intervals.append((task_id, a0, a1, task.description))
+
+        cited_ids = row.get("cited_ids") or []
+        if isinstance(cited_ids, str):
+            cited_ids = [cited_ids]
+        reason = str(row.get("reason", "")).strip()
+        order_raw = row.get("order", idx + 1)
+        try:
+            order = int(order_raw)
+        except (TypeError, ValueError):
+            order = idx + 1
+
+        normalized.append(
+            {
+                "task_id": task_id,
+                "start_time": start_time,
+                "order": order,
+                "reason": reason,
+                "cited_ids": [str(x) for x in cited_ids if str(x).strip()],
+                "pet": pet.name,
+                "species": pet.species,
+                "task": task.description,
+                "time_minutes": task.time_minutes,
+                "frequency": task.frequency,
+            }
+        )
+
+    if seen_ids != expected_ids:
+        missing = sorted(expected_ids - seen_ids)
+        extra = sorted(seen_ids - expected_ids)
+        raise ValueError(f"Proposal task_id set mismatch. Missing={missing}, extra={extra}.")
+
+    for i in range(len(intervals)):
+        for j in range(i + 1, len(intervals)):
+            id_a, a0, a1, desc_a = intervals[i]
+            id_b, b0, b1, desc_b = intervals[j]
+            if intervals_overlap_half_open(a0, a1, b0, b1):
+                raise ValueError(
+                    f"Overlapping proposal windows: {id_a} ({desc_a}) and {id_b} ({desc_b})."
+                )
+
+    return sorted(normalized, key=lambda r: (int(r["order"]), str(r["start_time"]), str(r["task_id"])))
 
 
 class DailyPlan:
@@ -311,7 +417,9 @@ class Scheduler:
 
     @staticmethod
     def _hhmm_sort_key(task: Task) -> tuple[int, int]:
-        """Sort key for normalized HH:MM strings (hour, minute)."""
+        """Sort key for optional HH:MM strings; unscheduled tasks sort last."""
+        if task.start_time is None:
+            return (24, 0)
         h, m = task.start_time.split(":")
         return (int(h), int(m))
 

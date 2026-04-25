@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from gemini_client import explain_schedule_with_rag
+from gemini_client import explain_schedule_with_rag, propose_daily_schedule_with_rag
 
 
 @patch("google.generativeai.configure")
@@ -54,3 +54,37 @@ def test_explain_schedule_skips_without_key() -> None:
         api_key=None,
     )
     assert out is None
+
+
+@patch("google.generativeai.configure")
+@patch("google.generativeai.GenerativeModel")
+def test_propose_daily_schedule_parses_json(mock_model_cls: MagicMock, _mock_cfg: MagicMock) -> None:
+    instance = MagicMock()
+    mock_model_cls.return_value = instance
+    resp = MagicMock()
+    resp.text = (
+        '{"items":[{"task_id":"t1","start_time":"08:00","order":1,'
+        '"reason":"Morning walk gets energy out early.","cited_ids":["dog-walk-01"]}],'
+        '"plan_summary":"Simple morning-first plan."}'
+    )
+    instance.generate_content.return_value = resp
+
+    out = propose_daily_schedule_with_rag(
+        owner_name="Alex",
+        target_date_iso="2026-04-24",
+        tasks_payload=[
+            {
+                "task_id": "t1",
+                "pet": "Mochi",
+                "species": "dog",
+                "description": "Walk",
+                "time_minutes": 30,
+                "frequency": "daily",
+            }
+        ],
+        knowledge_chunks=[{"id": "dog-walk-01", "text": "Dogs like routine walks.", "tags": ["dog"]}],
+        api_key="fake-key-for-test",
+    )
+    assert out is not None
+    assert out["items"][0]["task_id"] == "t1"
+    assert out["plan_summary"]

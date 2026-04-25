@@ -84,6 +84,36 @@
     "text": "Young dogs need frequent breaks; keep sessions short and positive."
   },
   {
+    "id": "daily-window-01",
+    "topic": "timing",
+    "tags": ["daily", "timing", "morning", "evening", "dog", "cat"],
+    "text": "Daily care tasks are often easiest to sustain when placed in morning or evening routines that owners repeat consistently."
+  },
+  {
+    "id": "daily-window-02",
+    "topic": "timing",
+    "tags": ["daily", "timing", "habit"],
+    "text": "Anchor daily tasks near existing routines (wake-up or post-work) to improve adherence."
+  },
+  {
+    "id": "weekly-window-01",
+    "topic": "timing",
+    "tags": ["weekly", "timing", "afternoon", "evening", "grooming"],
+    "text": "Weekly tasks can fit better in later-day windows when there is more buffer time for longer sessions."
+  },
+  {
+    "id": "weekly-window-02",
+    "topic": "timing",
+    "tags": ["weekly", "timing", "planning"],
+    "text": "Batch weekly chores into predictable late-day slots so daily essentials still happen first."
+  },
+  {
+    "id": "meds-window-01",
+    "topic": "medication",
+    "tags": ["meds", "daily", "timing", "consistency"],
+    "text": "Medication reminders are often easiest to maintain when scheduled at the same clock time each day."
+  },
+  {
     "id": "disclaimer-01",
     "topic": "general",
     "tags": ["dog", "cat", "other"],

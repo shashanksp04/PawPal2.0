@@ -10,11 +10,11 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from pawpal_system import Owner, Pet, Task, task_overlaps_any_pending
+from pawpal_system import Owner, Pet, Task
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _DEFAULT_OWNER_NAME = "Jordan"
 
@@ -58,13 +58,14 @@ def _task_to_dict(task: Task) -> dict[str, Any]:
 
 def _task_from_dict(data: dict[str, Any]) -> Task:
     tid = data.get("id")
+    start_time_raw = data.get("start_time", None)
     return Task(
         description=str(data["description"]),
         time_minutes=int(data["time_minutes"]),
         frequency=str(data["frequency"]),
         completed=bool(data.get("completed", False)),
         due_date=_parse_due_date(data.get("due_date")),
-        start_time=str(data.get("start_time", "09:00")),
+        start_time=None if start_time_raw is None else str(start_time_raw),
         task_id=str(tid) if tid else None,
     )
 
@@ -94,24 +95,17 @@ def validate_task_fields(task: Task) -> None:
 
 
 def assert_task_can_be_added(owner: Owner, pet: Pet, task: Task) -> None:
-    """Validate fields and time overlap against all pending tasks on owner."""
+    """Validate fields and owner registration for inserts."""
     validate_task_fields(task)
     if pet not in owner.pets:
         raise TaskValidationError("Pet is not registered with this owner.")
-    conflict = task_overlaps_any_pending(owner, task)
-    if conflict is not None:
-        p2, t2 = conflict
-        raise TaskOverlapError(
-            f"Time conflict with existing task **{p2.name}**: {t2.description} "
-            f"({t2.start_time}, {t2.time_minutes} min). Choose a different start time or duration."
-        )
 
 
 def owner_from_dict(payload: dict[str, Any]) -> Owner:
     """Build Owner graph from stored dict."""
     version = int(payload.get("schema_version", 1))
-    if version != SCHEMA_VERSION:
-        raise ValueError(f"Unsupported schema_version {version!r}; expected {SCHEMA_VERSION}.")
+    if version not in (1, SCHEMA_VERSION):
+        raise ValueError(f"Unsupported schema_version {version!r}; expected 1 or {SCHEMA_VERSION}.")
 
     raw_owner = payload["owner"]
     name = str(raw_owner.get("name", _DEFAULT_OWNER_NAME)).strip() or _DEFAULT_OWNER_NAME

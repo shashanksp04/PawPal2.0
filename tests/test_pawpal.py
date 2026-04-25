@@ -169,6 +169,11 @@ def test_task_id_from_constructor() -> None:
     assert t.task_id == "my-fixed-id"
 
 
+def test_task_start_time_can_be_unscheduled() -> None:
+    t = Task("Walk", 10, "daily", start_time=None)
+    assert t.start_time is None
+
+
 def test_schedule_time_conflicts_ignores_completed_tasks() -> None:
     pet = Pet("P", "dog")
     t1 = Task("a", 1, "daily", start_time="12:00")
@@ -176,6 +181,15 @@ def test_schedule_time_conflicts_ignores_completed_tasks() -> None:
     t2.mark_complete()
     pet.add_task(t1)
     pet.add_task(t2)
+    owner = Owner("O")
+    owner.add_pet(pet)
+    assert Scheduler().schedule_time_conflicts(owner) == []
+
+
+def test_schedule_time_conflicts_ignores_unscheduled_tasks() -> None:
+    pet = Pet("P", "dog")
+    pet.add_task(Task("a", 30, "daily", start_time=None))
+    pet.add_task(Task("b", 20, "daily", start_time=None))
     owner = Owner("O")
     owner.add_pet(pet)
     assert Scheduler().schedule_time_conflicts(owner) == []

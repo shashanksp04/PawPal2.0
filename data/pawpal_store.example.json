@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "owner": {
     "name": "Jordan",
     "pets": [
@@ -14,7 +14,7 @@
             "frequency": "daily",
             "completed": false,
             "due_date": null,
-            "start_time": "08:00"
+            "start_time": null
           }
         ]
       }
