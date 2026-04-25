@@ -58,9 +58,11 @@ def test_complete_daily_task_creates_next_day_task() -> None:
     """Marking a daily task done appends a new incomplete task for the following day."""
     base = date(2026, 3, 10)
     pet = Pet("Mochi", "dog")
+    owner = Owner("Alex")
+    owner.add_pet(pet)
     t = Task("Morning walk", 20, "daily", completed=False, due_date=base, start_time="08:00")
     pet.add_task(t)
-    pet.complete_task(t)
+    pet.complete_task(t, owner=owner)
 
     assert t.completed is True
     assert len(pet.tasks) == 2
@@ -76,9 +78,11 @@ def test_complete_daily_task_creates_next_day_task() -> None:
 def test_complete_weekly_task_creates_next_week_task() -> None:
     base = date(2026, 3, 1)
     pet = Pet("Luna", "cat")
+    owner = Owner("Alex")
+    owner.add_pet(pet)
     t = Task("Grooming", 45, "weekly", due_date=base, start_time="14:00")
     pet.add_task(t)
-    pet.complete_task(t)
+    pet.complete_task(t, owner=owner)
 
     nxt = next(x for x in pet.tasks if not x.completed)
     assert nxt.due_date == date(2026, 3, 8)
@@ -115,7 +119,7 @@ def test_schedule_time_conflicts_flags_duplicate_times() -> None:
 
     warnings = Scheduler().schedule_time_conflicts(owner)
     assert len(warnings) == 1
-    assert "Conflict" in warnings[0]
+    assert "Overlap" in warnings[0]
     assert "09:00" in warnings[0]
     assert "Feed" in warnings[0] and "Meds" in warnings[0]
 
@@ -141,6 +145,28 @@ def test_schedule_time_conflicts_no_warning_when_times_differ() -> None:
     owner = Owner("O")
     owner.add_pet(pet)
     assert Scheduler().schedule_time_conflicts(owner) == []
+
+
+def test_schedule_time_conflicts_detects_duration_overlap() -> None:
+    """Two tasks with different start times still conflict if intervals overlap."""
+    pet = Pet("P", "dog")
+    pet.add_task(Task("long", 120, "daily", start_time="08:00"))
+    pet.add_task(Task("short", 10, "daily", start_time="09:00"))
+    owner = Owner("O")
+    owner.add_pet(pet)
+    warnings = Scheduler().schedule_time_conflicts(owner)
+    assert len(warnings) == 1
+    assert "Overlap" in warnings[0]
+
+
+def test_task_has_stable_uuid() -> None:
+    t = Task("Walk", 10, "daily")
+    assert len(t.task_id) == 36
+
+
+def test_task_id_from_constructor() -> None:
+    t = Task("Walk", 10, "daily", task_id="my-fixed-id")
+    assert t.task_id == "my-fixed-id"
 
 
 def test_schedule_time_conflicts_ignores_completed_tasks() -> None:

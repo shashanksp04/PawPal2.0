@@ -1,0 +1,92 @@
+[
+  {
+    "id": "dog-walk-01",
+    "topic": "exercise",
+    "tags": ["dog", "exercise"],
+    "text": "Dogs often benefit from regular walks; a predictable routine can make rest of the day calmer."
+  },
+  {
+    "id": "dog-walk-02",
+    "topic": "exercise",
+    "tags": ["dog", "walk"],
+    "text": "Morning walks can help burn energy before quieter indoor periods."
+  },
+  {
+    "id": "cat-play-01",
+    "topic": "enrichment",
+    "tags": ["cat", "play"],
+    "text": "Short play sessions support mental stimulation for indoor cats."
+  },
+  {
+    "id": "feeding-01",
+    "topic": "feeding",
+    "tags": ["dog", "cat", "feeding"],
+    "text": "Consistent meal timing is easier on digestion than random large shifts."
+  },
+  {
+    "id": "feeding-02",
+    "topic": "feeding",
+    "tags": ["cat", "feeding"],
+    "text": "Cats may prefer smaller, scheduled meals rather than leaving food out all day."
+  },
+  {
+    "id": "water-01",
+    "topic": "hydration",
+    "tags": ["dog", "cat", "water"],
+    "text": "Fresh water should be available daily; wash bowls regularly."
+  },
+  {
+    "id": "meds-01",
+    "topic": "medication",
+    "tags": ["dog", "cat", "meds"],
+    "text": "If your vet prescribed a medication schedule, consistency matters; ask your vet about timing with meals."
+  },
+  {
+    "id": "groom-01",
+    "topic": "grooming",
+    "tags": ["dog", "cat", "grooming"],
+    "text": "Grooming sessions are a good time to notice skin, coat, or ear changes."
+  },
+  {
+    "id": "litter-01",
+    "topic": "litter",
+    "tags": ["cat", "litter"],
+    "text": "Litter box checks help catch changes in elimination habits early."
+  },
+  {
+    "id": "dental-01",
+    "topic": "dental",
+    "tags": ["dog", "dental"],
+    "text": "Dental care at home is supportive care; serious dental disease needs a veterinarian."
+  },
+  {
+    "id": "enrich-01",
+    "topic": "enrichment",
+    "tags": ["dog", "cat", "enrichment"],
+    "text": "Puzzle feeders and scent games add variety without always increasing intensity."
+  },
+  {
+    "id": "rest-01",
+    "topic": "rest",
+    "tags": ["dog", "cat", "rest"],
+    "text": "Rest periods between activities help pets recover, especially seniors."
+  },
+  {
+    "id": "senior-01",
+    "topic": "senior",
+    "tags": ["dog", "cat", "senior"],
+    "text": "Older pets may need shorter sessions and more recovery time between tasks."
+  },
+  {
+    "id": "puppy-01",
+    "topic": "puppy",
+    "tags": ["dog", "puppy"],
+    "text": "Young dogs need frequent breaks; keep sessions short and positive."
+  },
+  {
+    "id": "disclaimer-01",
+    "topic": "general",
+    "tags": ["dog", "cat", "other"],
+    "text": "This app provides general care ideas only, not veterinary diagnosis or treatment."
+  }
+]

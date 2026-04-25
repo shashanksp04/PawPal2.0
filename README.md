@@ -1,28 +1,32 @@
 # PawPal+
 
-**PawPal+** is a Streamlit app that helps pet owners plan care tasks across one or more pets. You define tasks with duration, frequency, and start times; the app surfaces scheduling conflicts, lists pending work in time order, and builds an ordered daily plan with short explanations for each step.
+**PawPal+** is a Streamlit app that helps a single pet owner plan care tasks across one or more pets. You define tasks with duration, frequency, and start times; the app persists state to JSON, rejects **overlapping** time windows when you add a task, surfaces conflicts in the UI, and builds an ordered daily plan with explanations. Optional **Gemini** + **RAG** (local `data/knowledge_base.json`) adds a short **AI_Why** line per step grounded in code facts and retrieved snippets.
 
 ---
 
 ## Features
 
-The scheduling layer lives in `pawpal_system.py` (`Owner`, `Pet`, `Task`, `Scheduler`, `DailyPlan`). The UI in `app.py` calls into that logic.
+Core scheduling lives in `pawpal_system.py` (`Owner`, `Pet`, `Task`, `Scheduler`, `DailyPlan`). Persistence and insert validation live in `pawpal_store.py`. The UI is in `app.py`.
 
-- **Sorting by start time** — Tasks are ordered by normalized **HH:MM** clock times (earliest first). The scheduler uses a dedicated sort key on hour and minute so lists stay consistent regardless of input order.
+- **JSON persistence** — Owner, pets, and tasks are saved to `data/pawpal_store.json` (created on first run). See `data/pawpal_store.example.json` for the schema. The real store file is gitignored so local data is not committed.
 
-- **Conflict warnings (same start time)** — For **incomplete** tasks only, the app groups by identical start time across all pets. If two or more tasks share the same clock time, you get a warning listing which pets and tasks collide. This is an exact-time check (not duration overlap).
+- **Overlap-safe task adds** — A new **incomplete** task is rejected if its half-open interval `[start, start + duration)` overlaps any other pending task on **any** pet (same owner). Tasks must not extend past **midnight** on the modeled day.
 
-- **Filtering** — Pending tasks can be filtered by completion state and optionally by **pet name**, producing `(pet, task)` pairs for display and further sorting.
+- **Conflict warnings** — `Scheduler.schedule_time_conflicts` uses the same overlap rule and groups overlapping pending tasks for the Scheduling insights panel.
 
-- **Daily / weekly / once recurrence** — Tasks support **daily**, **weekly**, and **once** frequencies. `Pet.complete_task` marks work done and, for daily or weekly tasks, appends the next occurrence with an updated **due date** (next day or next week), preserving duration and start time. **Once** tasks do not repeat. The CLI demo in `main.py` exercises this flow.
+- **Sorting by start time** — Pending tasks can be listed by normalized **HH:MM** (earliest first).
 
-- **Plan generation with priority rules** — `build_plan` orders pending tasks by: **recurrence importance** (daily before weekly before once), then **shorter duration**, then **pet name**, then **task description** (tie-breakers). Each slot includes a **“Why”** explanation describing that ordering.
+- **Filtering** — Pending tasks can be filtered by completion state and optionally by **pet name**.
 
-- **Normalized times** — Start times are validated and normalized to zero-padded **HH:MM** for comparisons and sorting.
+- **Daily / weekly / once recurrence** — `Pet.complete_task(..., owner=owner)` marks work done and, for daily or weekly tasks, appends the next occurrence when it would **not** overlap another pending task (otherwise the append is skipped and a warning is logged). Pass **`owner=`** when you have the full owner graph so overlap checks are correct.
+
+- **Plan generation** — `build_plan` orders pending tasks by recurrence tier, duration, pet name, and description. Each slot includes a **Why (code)** string.
+
+- **RAG + Gemini (optional)** — On **Generate schedule**, the app retrieves top knowledge chunks (`pawpal_rag.py`) and calls **Gemini** (`gemini_client.py`) to produce **AI_Why** and **Sources** (cited snippet ids). Set `GOOGLE_API_KEY` or `GEMINI_API_KEY`. Override the model with `GEMINI_MODEL` (default `gemini-2.5-flash`; the client prefixes `models/` when needed).
 
 ---
 
-## 📸 Demo
+## Demo
 
 Replace the path below with your screenshot file (or drop the image next to this README and adjust the relative path).
 
@@ -34,7 +38,7 @@ Replace the path below with your screenshot file (or drop the image next to this
 
 - Python 3.10+ (uses modern typing such as `list[str]`, `date | None`)
 
-Dependencies are listed in `requirements.txt` (Streamlit for the UI, pytest for tests).
+Dependencies are in `requirements.txt` (Streamlit, pytest, `google-generativeai` for Gemini). Google may deprecate `google-generativeai` in favor of `google.genai`; if install warns, the app still runs with the key package until you migrate.
 
 ---
 
@@ -53,6 +57,18 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+### Environment (AI)
+
+```bash
+# Windows PowerShell
+$env:GOOGLE_API_KEY = "your-key"
+
+# Optional
+$env:GEMINI_MODEL = "gemini-2.5-flash"
+```
+
+Without a key, the app still runs; schedule generation shows **Why (code)** only and a short caption about skipped AI.
+
 ---
 
 ## Run the app
@@ -63,13 +79,11 @@ From the project root (with the venv activated):
 streamlit run app.py
 ```
 
-The app opens in your browser. Owner data is kept in Streamlit session state so it persists across interactions in a session.
+The app loads `data/pawpal_store.json` on startup (or creates it with a default owner). Session state mirrors that data for the session; successful adds and owner-name changes write back to disk.
 
 ---
 
 ## CLI demo (optional)
-
-A small terminal script exercises sorting, filtering, conflicts, completion/recurrence, and `build_plan`:
 
 ```bash
 python main.py
@@ -83,13 +97,20 @@ python main.py
 pytest tests/ -v
 ```
 
+Tests cover scheduling, JSON round-trip, overlap validation, keyword RAG retrieval, and a **mocked** Gemini JSON response (no network).
+
 ---
 
 ## Project layout
 
 | Path | Role |
 |------|------|
-| `app.py` | Streamlit UI |
-| `pawpal_system.py` | Domain model and scheduling algorithms |
+| `app.py` | Streamlit UI, persistence hooks, optional AI columns |
+| `pawpal_system.py` | Domain model, overlap helpers, scheduler |
+| `pawpal_store.py` | JSON load/save, `try_add_task` validation |
+| `pawpal_rag.py` | Keyword retrieval over `data/knowledge_base.json` |
+| `gemini_client.py` | Gemini call + JSON parsing for schedule explanations |
+| `data/knowledge_base.json` | Curated snippets for RAG |
+| `data/pawpal_store.example.json` | Example DB shape |
 | `main.py` | Command-line demo |
-| `tests/test_pawpal.py` | Pytest coverage for core behaviors |
+| `tests/` | Pytest suites |

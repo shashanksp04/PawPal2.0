@@ -3,3 +3,6 @@ __pycache__/
 .venv_new/
 .pytest_cache/
 .DS_Store
+
+# Local single-user data (copy pawpal_store.example.json if you need a starter)
+data/pawpal_store.json

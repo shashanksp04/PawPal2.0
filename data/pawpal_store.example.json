@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "owner": {
+    "name": "Jordan",
+    "pets": [
+      {
+        "name": "Mochi",
+        "species": "dog",
+        "tasks": [
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "description": "Morning walk",
+            "time_minutes": 30,
+            "frequency": "daily",
+            "completed": false,
+            "due_date": null,
+            "start_time": "08:00"
+          }
+        ]
+      }
+    ]
+  }
+}

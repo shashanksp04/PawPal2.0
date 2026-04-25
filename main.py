@@ -38,7 +38,7 @@ def main() -> None:
     for pet, task in sched.filter_tasks(owner, completed=False, pet_name="Mochi"):
         print(f"  {pet.name}: {task.description} @ {task.start_time} done={task.completed}")
 
-    print("\n=== Schedule time conflicts (same HH:MM, incomplete tasks) ===")
+    print("\n=== Schedule time conflicts (overlapping clock windows, incomplete tasks) ===")
     conflicts = sched.schedule_time_conflicts(owner)
     if not conflicts:
         print("  (none)")
@@ -48,7 +48,7 @@ def main() -> None:
     print("\n=== Complete one daily task -> next occurrence (due date +1 day) ===")
     walk = next(t for t in mochi.tasks if t.description == "Morning walk" and not t.completed)
     print(f"  Before: {len(mochi.tasks)} tasks, completing: {walk.description}")
-    mochi.complete_task(walk)
+    mochi.complete_task(walk, owner=owner)
     print(f"  After: {len(mochi.tasks)} tasks")
     new_ones = [t for t in mochi.tasks if not t.completed and t.description == walk.description]
     for t in new_ones:

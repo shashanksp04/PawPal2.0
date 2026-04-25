@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_hhmm(value: str) -> str:
@@ -16,6 +20,18 @@ def _normalize_hhmm(value: str) -> str:
     return f"{hour:02d}:{minute:02d}"
 
 
+def start_time_to_minutes(hhmm: str) -> int:
+    """Return minutes from midnight for a normalized HH:MM string."""
+    normalized = _normalize_hhmm(hhmm)
+    h, m = normalized.split(":")
+    return int(h) * 60 + int(m)
+
+
+def intervals_overlap_half_open(a0: int, a1: int, b0: int, b1: int) -> bool:
+    """True iff [a0, a1) and [b0, b1) overlap (half-open intervals)."""
+    return a0 < b1 and b0 < a1
+
+
 class Task:
     """A single care activity for a pet."""
 
@@ -27,6 +43,7 @@ class Task:
         completed: bool = False,
         due_date: date | None = None,
         start_time: str = "09:00",
+        task_id: str | None = None,
     ) -> None:
         """Create a task with description, duration, frequency, optional due date and start time."""
         self._description = description
@@ -35,6 +52,7 @@ class Task:
         self._completed = completed
         self._due_date = due_date
         self._start_time = _normalize_hhmm(start_time)
+        self._task_id = task_id if task_id is not None else str(uuid.uuid4())
 
     @property
     def description(self) -> str:
@@ -66,9 +84,28 @@ class Task:
         """Return scheduled start of day as HH:MM (used for sorting and conflict checks)."""
         return self._start_time
 
+    @property
+    def task_id(self) -> str:
+        """Stable id for persistence (UUID string)."""
+        return self._task_id
+
     def mark_complete(self) -> None:
         """Mark this task as completed."""
         self._completed = True
+
+
+def task_day_interval_minutes(task: Task) -> tuple[int, int]:
+    """
+    Return [start, end) in minutes from midnight for the task's clock window.
+    Raises ValueError if the window extends past 24:00 (not supported for overlap checks).
+    """
+    start_m = start_time_to_minutes(task.start_time)
+    end_m = start_m + int(task.time_minutes)
+    if end_m > 24 * 60:
+        raise ValueError(
+            "Task start time plus duration extends past midnight; shorten the task or start earlier."
+        )
+    return start_m, end_m
 
 
 class Pet:
@@ -99,38 +136,56 @@ class Pet:
         """Append a task to this pet's list."""
         self._tasks.append(task)
 
-    def complete_task(self, task: Task) -> None:
-        """Mark a task done; for daily/weekly, append the next occurrence with an updated due date."""
+    def complete_task(self, task: Task, *, owner: Owner | None = None) -> None:
+        """
+        Mark a task done; for daily/weekly, append the next occurrence with an updated due date.
+        If owner is provided, skip appending the next occurrence when it would overlap another
+        pending task on that owner (same clock-day window).
+        """
         if task not in self._tasks:
             return
-        task.mark_complete()
         freq = task.frequency
+        new_task: Task | None = None
         if freq == "daily":
             base = task.due_date if task.due_date is not None else date.today()
             new_due = base + timedelta(days=1)
-            self.add_task(
-                Task(
-                    task.description,
-                    task.time_minutes,
-                    "daily",
-                    completed=False,
-                    due_date=new_due,
-                    start_time=task.start_time,
-                )
+            new_task = Task(
+                task.description,
+                task.time_minutes,
+                "daily",
+                completed=False,
+                due_date=new_due,
+                start_time=task.start_time,
             )
         elif freq == "weekly":
             base = task.due_date if task.due_date is not None else date.today()
             new_due = base + timedelta(weeks=1)
-            self.add_task(
-                Task(
-                    task.description,
-                    task.time_minutes,
-                    "weekly",
-                    completed=False,
-                    due_date=new_due,
-                    start_time=task.start_time,
-                )
+            new_task = Task(
+                task.description,
+                task.time_minutes,
+                "weekly",
+                completed=False,
+                due_date=new_due,
+                start_time=task.start_time,
             )
+
+        if new_task is not None and owner is not None:
+            conflict = task_overlaps_any_pending(owner, new_task, ignore_task=task)
+            if conflict is not None:
+                p2, t2 = conflict
+                logger.warning(
+                    "Skipping recurrence append for %r: overlaps pending %s/%r at %s-%s min",
+                    task.description,
+                    p2.name,
+                    t2.description,
+                    t2.start_time,
+                    t2.time_minutes,
+                )
+                return
+
+        task.mark_complete()
+        if new_task is not None:
+            self.add_task(new_task)
 
 
 class Owner:
@@ -166,6 +221,45 @@ class Owner:
         for pet in self._pets:
             out.extend(pet.tasks)
         return out
+
+
+def pending_task_interval_rows(owner: Owner) -> list[tuple[Pet, Task, int, int]]:
+    """List (pet, task, start_min, end_min) for every incomplete task; skips tasks with invalid intervals."""
+    rows: list[tuple[Pet, Task, int, int]] = []
+    for pet in owner.pets:
+        for task in pet.tasks:
+            if task.completed:
+                continue
+            try:
+                a, b = task_day_interval_minutes(task)
+            except ValueError:
+                continue
+            rows.append((pet, task, a, b))
+    return rows
+
+
+def task_overlaps_any_pending(
+    owner: Owner,
+    candidate: Task,
+    *,
+    ignore_task: Task | None = None,
+) -> tuple[Pet, Task] | None:
+    """
+    If candidate's interval overlaps any incomplete task on the owner (any pet), return
+    the first conflicting (pet, task); otherwise None.
+    """
+    try:
+        c0, c1 = task_day_interval_minutes(candidate)
+    except ValueError:
+        return None
+    for pet, task, t0, t1 in pending_task_interval_rows(owner):
+        if ignore_task is not None and task is ignore_task:
+            continue
+        if candidate is task:
+            continue
+        if intervals_overlap_half_open(c0, c1, t0, t1):
+            return pet, task
+    return None
 
 
 class DailyPlan:
@@ -246,23 +340,55 @@ class Scheduler:
 
     def schedule_time_conflicts(self, owner: Owner) -> list[str]:
         """
-        Lightweight conflict check: warn when two or more incomplete tasks share the same start_time.
-        Does not model overlapping durations—only exact same HH:MM.
+        Warn when two or more incomplete tasks have overlapping clock windows [start, start+duration)
+        on the same calendar day model (minutes from midnight; tasks must not extend past midnight).
         """
-        by_time: dict[str, list[tuple[Pet, Task]]] = defaultdict(list)
-        for pet in owner.pets:
-            for task in pet.tasks:
-                if task.completed:
-                    continue
-                by_time[task.start_time].append((pet, task))
+        rows = pending_task_interval_rows(owner)
+        n = len(rows)
+        if n <= 1:
+            return []
+
+        parent = list(range(n))
+
+        def find(i: int) -> int:
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        def union(i: int, j: int) -> None:
+            ri, rj = find(i), find(j)
+            if ri != rj:
+                parent[ri] = rj
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                _, _, a0, a1 = rows[i]
+                _, _, b0, b1 = rows[j]
+                if intervals_overlap_half_open(a0, a1, b0, b1):
+                    union(i, j)
+
+        groups: dict[int, list[int]] = defaultdict(list)
+        for i in range(n):
+            groups[find(i)].append(i)
+
         warnings: list[str] = []
-        for st, group in sorted(by_time.items()):
-            if len(group) <= 1:
+        for idxs in groups.values():
+            if len(idxs) <= 1:
                 continue
-            detail = "; ".join(f"{p.name}: {t.description}" for p, t in group)
+            parts: list[str] = []
+            for i in idxs:
+                pet, task, t0, t1 = rows[i]
+                h0, m0 = divmod(t0, 60)
+                h1, m1 = divmod(t1, 60)
+                parts.append(
+                    f"{pet.name}: {task.description} "
+                    f"({task.start_time}–{h1:02d}:{m1:02d}, {task.time_minutes} min)"
+                )
+            detail = "; ".join(sorted(parts))
             warnings.append(
-                f"Conflict: {len(group)} tasks at {st} - {detail}. "
-                "Resolve by changing a start time or staggering care."
+                f"Overlap: {len(idxs)} pending tasks share clock time — {detail}. "
+                "Change a start time or duration so only one activity runs at a time."
             )
         return warnings
 
