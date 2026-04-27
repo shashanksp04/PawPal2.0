@@ -41,6 +41,7 @@ def retrieve_for_schedule_context(
     owner_name: str,
     slot_lines: list[str],
     species_list: list[str],
+    preference_lines: list[str] | None = None,
     top_k: int = 5,
     path: Path | None = None,
 ) -> list[dict[str, Any]]:
@@ -49,7 +50,9 @@ def retrieve_for_schedule_context(
     slot_lines: human-readable lines per plan step for keyword overlap.
     """
     entries = load_knowledge_entries(path)
-    query = " ".join([owner_name, *species_list, *slot_lines])
+    bounded_preferences = [(line or "").strip()[:120] for line in (preference_lines or []) if (line or "").strip()]
+    bounded_preferences = bounded_preferences[:4]
+    query = " ".join([owner_name, *species_list, *slot_lines, *bounded_preferences])
     qtok = _tokenize(query)
     scored: list[tuple[int, dict[str, Any]]] = []
     for e in entries:
